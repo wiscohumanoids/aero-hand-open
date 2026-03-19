@@ -17,7 +17,7 @@ Get from zero to controlling the Aero Hand in ~5 minutes.
 ### 1. Clone the repo
 
 ```bash
-git clone https://github.com/<YOUR_FORK>/aero-hand-open.git
+git clone https://github.com/wiscohumanoids/aero-hand-open.git
 cd aero-hand-open
 ```
 
@@ -56,7 +56,7 @@ This installs the `aero-open-sdk` package (pyserial + the hand control library) 
 pip install -r wiscohumanoids/requirements.txt
 ```
 
-(This is just pyserial, which the SDK already pulls in -- but it's here for completeness.)
+(This is just pyserial, which the SDK already pulls in -- but it's here for completeness. In the future, it will include other libraries for our custom GUI.)
 
 ### 5. Find your COM port
 

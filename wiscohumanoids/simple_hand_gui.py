@@ -182,7 +182,7 @@ def start_grab():
     threading.Thread(target=run_grab, daemon=True).start()
 
 def run_homing():
-    status_label.config(text="Homing... (~3 min, don't touch the hand)")
+    status_label.config(text="Homing... (don't touch the hand)")
     root.update_idletasks()
     with hand_lock:
         success = hand.send_homing()
