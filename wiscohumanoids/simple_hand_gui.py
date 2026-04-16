@@ -3,11 +3,13 @@ import sys
 import os
 import time
 import threading
+import random
 
 # Add the SDK source to the path so we can import aero_open_sdk
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "sdk", "src"))
 
 from aero_open_sdk.aero_hand import AeroHand
+from hand_mirror import HandMirror
 
 # --- CONFIG ---
 PORT = "COM5"   # CHANGE THIS to your port (e.g. COM3, COM12, etc.)
@@ -57,6 +59,7 @@ for i in range(7):
     hand.set_torque(i, 400)
 
 hand_lock = threading.Lock()
+mirror = HandMirror(hand, hand_lock, status_cb=None, stopped_cb=None)  # callbacks wired after root is created
 
 # --- FUNCTIONS ---
 def set_pose(name, pose):
@@ -181,6 +184,48 @@ def run_grab():
 def start_grab():
     threading.Thread(target=run_grab, daemon=True).start()
 
+def run_rps():
+    """Rock-paper-scissors: thumb tucked, quick quiver x3, fluid throw."""
+    THUMB_TUCKED    = [100, 55, 30, 0, 0, 0, 0]
+    THUMB_TUCKED_IN = [100, 55, 30, 35, 35, 35, 35]
+
+    # Human-realistic speed -- deliberate, not robotic
+    with hand_lock:
+        for i in range(7):
+            hand.set_speed(i, 160)
+
+    set_pose("rps-ready", THUMB_TUCKED)
+    time.sleep(0.9)   # pause after thumb tucks -- "okay ready?"
+
+    move = random.choice(["rock", "paper", "scissors"])
+
+    # 3 quivers -- last one transitions directly into the throw
+    for i in range(3):
+        set_pose("rps-in", THUMB_TUCKED_IN)
+        time.sleep(0.20)
+        if i < 2:
+            set_pose("rps-out", THUMB_TUCKED)
+            time.sleep(0.26)
+        else:
+            # Beat before the throw
+            time.sleep(0.25)
+            if move == "rock":
+                set_pose("RPS: Rock", FIST_POSE)
+            elif move == "paper":
+                set_pose("RPS: Paper", OPEN_POSE)
+            else:
+                set_pose("RPS: Scissors", PEACE_POSE)
+
+    # Restore normal speed
+    with hand_lock:
+        for i in range(7):
+            hand.set_speed(i, 80)
+
+    root.after(0, lambda: status_label.config(text=f"RPS threw: {move.upper()}!"))
+
+def start_rps():
+    threading.Thread(target=run_rps, daemon=True).start()
+
 def run_homing():
     status_label.config(text="Homing... (don't touch the hand)")
     root.update_idletasks()
@@ -298,7 +343,8 @@ make_button(seq_frame, "GREET",       start_greet,       bg_color=SEQ_BG, hover_
 make_button(seq_frame, "FINGER TAP",  start_finger_tap,  bg_color=SEQ_BG, hover_color=SEQ_HOVER, row=0, col=1)
 make_button(seq_frame, "BECKON",      start_beckon,      bg_color=SEQ_BG, hover_color=SEQ_HOVER, row=1, col=0)
 make_button(seq_frame, "PUPPET TALK", start_puppet_talk,  bg_color=SEQ_BG, hover_color=SEQ_HOVER, row=1, col=1)
-make_button(seq_frame, "GRAB",        start_grab,        bg_color=SEQ_BG, hover_color=SEQ_HOVER, row=2, col=0, colspan=2)
+make_button(seq_frame, "GRAB",        start_grab,        bg_color=SEQ_BG, hover_color=SEQ_HOVER, row=2, col=0)
+make_button(seq_frame, "ROCK PAPER SCISSORS", start_rps, bg_color=SEQ_BG, hover_color=SEQ_HOVER, row=2, col=1)
 
 # Separator
 tk.Frame(content, bg=ACCENT, height=2).pack(fill="x", padx=60, pady=(16, 8))
@@ -309,8 +355,31 @@ tk.Label(content, text="SYSTEM", font=("Segoe UI", 12, "bold"), fg=STATUS_COLOR,
 sys_frame = tk.Frame(content, bg=BG)
 sys_frame.pack(fill="x", padx=60)
 sys_frame.columnconfigure(0, weight=1)
+sys_frame.columnconfigure(1, weight=1)
 
 make_button(sys_frame, "HOMING", start_homing, bg_color=HOMING_BG, hover_color=HOMING_HOVER, row=0, col=0)
+
+MIRROR_ON_BG    = "#1a1a5c"
+MIRROR_ON_HOVER = "#2a2a8a"
+
+def _set_mirror_btn_off():
+    btn_mirror.config(bg=SEQ_BG, text="MIRROR  OFF")
+    btn_mirror.bind("<Leave>", lambda e: btn_mirror.config(bg=SEQ_BG))
+    btn_mirror.bind("<Enter>", lambda e: btn_mirror.config(bg=SEQ_HOVER))
+
+def _set_mirror_btn_on():
+    btn_mirror.config(bg=MIRROR_ON_BG, text="MIRROR  ON")
+    btn_mirror.bind("<Leave>", lambda e: btn_mirror.config(bg=MIRROR_ON_BG))
+    btn_mirror.bind("<Enter>", lambda e: btn_mirror.config(bg=MIRROR_ON_HOVER))
+
+def toggle_mirror():
+    mirror.toggle()
+    if mirror.is_running():
+        _set_mirror_btn_on()
+    else:
+        _set_mirror_btn_off()
+
+btn_mirror = make_button(sys_frame, "MIRROR  OFF", toggle_mirror, bg_color=SEQ_BG, hover_color=SEQ_HOVER, row=0, col=1)
 
 # Status bar
 status_label = tk.Label(
@@ -324,6 +393,10 @@ status_label = tk.Label(
     pady=10,
 )
 status_label.pack(fill="x", padx=60, pady=(20, 30))
+
+# Wire callbacks now that status_label and btn_mirror exist
+mirror._status_cb = lambda msg: root.after(0, lambda: status_label.config(text=msg))
+mirror._stopped_cb = lambda: root.after(0, _set_mirror_btn_off)
 
 # --- CLEAN EXIT ---
 def on_close():
