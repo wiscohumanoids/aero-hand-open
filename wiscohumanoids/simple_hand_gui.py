@@ -239,6 +239,108 @@ def run_homing():
 def start_homing():
     threading.Thread(target=run_homing, daemon=True).start()
 
+# --- DEFAULT SEQUENCE (idle loop) ---
+default_seq_running = False
+
+def run_default_sequence():
+    global default_seq_running
+
+    # Each entry: (function_that_runs_the_move, seconds_to_hold_after)
+    # Uses the same underlying routines, just called directly (no new threads)
+    def idle_open():       set_pose("idle-open",  OPEN_POSE)
+    def idle_fist():       set_pose("idle-fist",  FIST_POSE)
+    def idle_peace():      set_pose("idle-peace", PEACE_POSE)
+    def idle_rock():       set_pose("idle-rock",  ROCK_POSE)
+    def idle_pinch():      set_pose("idle-pinch", PINCH_POSE)
+
+    def idle_wave():
+        wave_frames = [
+            [0, 0, 0, 80, 40, 10, 0],
+            [0, 0, 0, 40, 80, 40, 10],
+            [0, 0, 0, 10, 40, 80, 40],
+            [0, 0, 0, 0,  10, 40, 80],
+            [0, 0, 0, 10, 0,  10, 40],
+            [0, 0, 0, 40, 10, 0,  10],
+            [0, 0, 0, 80, 40, 10, 0],
+        ]
+        set_pose("idle-wave-start", OPEN_POSE)
+        for cycle in range(2):
+            for i, frame in enumerate(wave_frames):
+                if not default_seq_running: return
+                set_pose(f"idle-wave-{cycle}-{i}", frame)
+                time.sleep(0.12)
+        set_pose("idle-wave-end", OPEN_POSE)
+
+    def idle_beckon():
+        for _ in range(3):
+            if not default_seq_running: return
+            set_pose("idle-beckon-out", BECKON_OUT)
+            time.sleep(0.35)
+            set_pose("idle-beckon-in",  BECKON_IN)
+            time.sleep(0.35)
+        set_pose("idle-beckon-done", BECKON_OUT)
+
+    def idle_tap():
+        for _ in range(2):
+            for idx, label in [(3,"i"),(4,"m"),(5,"r"),(6,"p")]:
+                if not default_seq_running: return
+                pose = list(OPEN_POSE)
+                pose[idx] = 70
+                set_pose(f"idle-tap-{label}", pose)
+                time.sleep(0.2)
+            set_pose("idle-tap-open", OPEN_POSE)
+            time.sleep(0.15)
+
+    def idle_count():
+        for pose in COUNT_POSES:
+            if not default_seq_running: return
+            set_pose("idle-count", pose)
+            time.sleep(0.6)
+
+    # Sequence of (action, pause_after_in_seconds)
+    sequence = [
+        (idle_open,    2.0),
+        (idle_wave,    1.5),
+        (idle_beckon,  1.5),
+        (idle_open,    1.0),
+        (idle_count,   1.0),
+        (idle_open,    1.5),
+        (idle_fist,    1.2),
+        (idle_open,    0.8),
+        (idle_peace,   1.5),
+        (idle_open,    0.8),
+        (idle_rock,    1.5),
+        (idle_open,    0.8),
+        (idle_tap,     1.2),
+        (idle_pinch,   1.2),
+        (idle_open,    1.5),
+    ]
+
+    while default_seq_running:
+        for action, pause in sequence:
+            if not default_seq_running:
+                break
+            action()
+            # Sleep in small chunks so stop is responsive
+            elapsed = 0.0
+            while elapsed < pause and default_seq_running:
+                time.sleep(0.1)
+                elapsed += 0.1
+
+    set_pose("idle-done", OPEN_POSE)
+
+def toggle_default_seq():
+    global default_seq_running
+    if default_seq_running:
+        default_seq_running = False
+        root.after(0, _set_default_seq_btn_off)
+        root.after(0, lambda: status_label.config(text="Default sequence stopped"))
+    else:
+        default_seq_running = True
+        root.after(0, _set_default_seq_btn_on)
+        root.after(0, lambda: status_label.config(text="Default sequence running..."))
+        threading.Thread(target=run_default_sequence, daemon=True).start()
+
 # --- GUI SETUP ---
 root = tk.Tk()
 root.title("Aero Hand Control")
@@ -358,6 +460,21 @@ sys_frame.columnconfigure(0, weight=1)
 sys_frame.columnconfigure(1, weight=1)
 
 make_button(sys_frame, "HOMING", start_homing, bg_color=HOMING_BG, hover_color=HOMING_HOVER, row=0, col=0)
+
+DEFAULT_ON_BG    = "#3a1a5c"
+DEFAULT_ON_HOVER = "#5a2a8a"
+
+def _set_default_seq_btn_off():
+    btn_default.config(bg=SEQ_BG, text="DEFAULT SEQUENCE  OFF")
+    btn_default.bind("<Leave>", lambda e: btn_default.config(bg=SEQ_BG))
+    btn_default.bind("<Enter>", lambda e: btn_default.config(bg=SEQ_HOVER))
+
+def _set_default_seq_btn_on():
+    btn_default.config(bg=DEFAULT_ON_BG, text="DEFAULT SEQUENCE  ON")
+    btn_default.bind("<Leave>", lambda e: btn_default.config(bg=DEFAULT_ON_BG))
+    btn_default.bind("<Enter>", lambda e: btn_default.config(bg=DEFAULT_ON_HOVER))
+
+btn_default = make_button(sys_frame, "DEFAULT SEQUENCE  OFF", toggle_default_seq, bg_color=SEQ_BG, hover_color=SEQ_HOVER, row=1, col=0, colspan=2)
 
 MIRROR_ON_BG    = "#1a1a5c"
 MIRROR_ON_HOVER = "#2a2a8a"
